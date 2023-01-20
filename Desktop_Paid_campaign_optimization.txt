@@ -1,0 +1,67 @@
+select distinct ref_code, city, 
+tot_desktop_login, desktop_login, round(safe_divide(desktop_login, tot_desktop_login)*100, 2) as login_perc,
+tot_lic, license, round(safe_divide(license, tot_lic)*100, 2) as lic_perc,
+tot_rev, revenue, round(safe_divide(revenue, tot_rev)*100, 2) as rev_perc
+from
+(select distinct ref_code, city,
+sum(desktop_login) over (partition by ref_code) as tot_desktop_login, desktop_login,
+sum(license) over (partition by ref_code) as tot_lic, license,
+sum(revenue) over (partition by ref_code) as tot_rev, revenue
+from
+(select distinct ref_code, city, 
+count(distinct uid) as desktop_login,
+sum(lic_count_per_promo) as license,
+sum(total_rev_per_promo) as revenue
+from
+(select distinct ref_code, city, uid, lic_count_per_promo, total_rev_per_promo
+from
+(select distinct uid, ref_code, city, 
+round(lic_count/max_promo_count, 2) as lic_count_per_promo, 
+round(tot_rev_per_uid/max_promo_count, 2) as total_rev_per_promo
+from
+(select distinct uid, ref_code, city, lic_count, tot_rev_per_uid, max(rn) over (partition by uid) as max_promo_count
+from
+(select distinct uid, ref_code, city, lic_count, 
+case when total_lic_rev is null then 0.0 else total_lic_rev end as tot_rev_per_uid,  
+row_number() over (partition by uid) as rn
+from
+(select distinct uid, ref_code, city, count(distinct lic) as lic_count, sum(lic_revenue) as total_lic_rev
+from
+(select distinct uid, ref_code, city, lic_revenue, pay_status,
+case when pay_status!=2 then null else lic_id end as lic
+from
+(select distinct lc.uid, lc.ref_code, lc.city, lc.login_dt, lc.tl_id, lc.lic_id, lc.lic_platform, lc.lic_created, lc.payment_id, 
+rev.rev1 as lic_revenue, rev.status as pay_status, rev.pay_in, rev.channel_ref
+from
+(select distinct lg.uid, lg.ref_code, lg.city, lg.login_dt, lg.tl_id,
+lic.id as lic_id, lic.platform as lic_platform, lic.payment_id, date(lic.created_at) as lic_created
+from
+(select distinct uid, ref_code, city, date(log_date) as login_dt, tl_id
+from
+(select distinct uid, ref_code, log_date, 
+row_number() over (partition by uid, ref_code order by log_date desc) as rn, city, tl_id
+from
+(select distinct uid, log_date, city, tl_id,
+case when ref_code like 'GGLAD1%' then 'GGLAD1'
+     when ref_code like 'GGLAD2%' then 'GGLAD2'
+     else ref_code end as ref_code
+from
+(select distinct uid, log_date, upper(promotional_code) as ref_code, city, id as tl_id
+from vp_leads
+where platform=2 and 
+      upper(country)='INDIA' and
+      date(log_date)>='2022-06-01' and
+      uid is not null and
+      uid not in (1,2) and
+      (upper(promotional_code) like 'GGLAD1%' or 
+       upper(promotional_code) like 'GGLAD2%' or 
+       upper(promotional_code) in ('GGLAD', 'GBA', 'GCOMP') ) ) ) )
+where rn=1 ) lg      
+left join vp_licenses lic on lg.uid=lic.uid
+where (date(lic.created_at)>='2022-06-01' or date(lic.created_at) is null) and 
+      (lic.payment_id not in (381027, 296595) or lic.payment_id is null) ) lc   
+left join vp_lic_rev rev on lc.payment_id=rev.payment_id and lc.lic_platform=rev.platform
+where rev.pay_in!='$' or rev.pay_in is null))
+group by uid, ref_code, city ) ) ) ) )
+group by ref_code, city ) )
+order by tot_desktop_login desc, desktop_login desc, tot_lic desc, license desc, tot_rev desc, revenue desc
