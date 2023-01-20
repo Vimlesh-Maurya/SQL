@@ -1,0 +1,24 @@
+Select log_date, Referral, sum(Logins) as Logins, sum(spend) as spend, 
+sum(spend)/sum(Logins) as CPL, sum(Licenses) as Licenses 
+from (
+select date(log_date) as log_date,
+       case when Ref_code in ('MRND1', 'MRND2', 'MRND3', 'MRND4') then 'MRND' 
+            when Ref_code in ('ADC1', 'ADC2', 'ADC3', 'ADC4', 'ADC5', 'ADC5', 'ADC6', 'ADC7') then 'ADC'
+            when Ref_code in ('MCOPY', 'MCOPY1', 'MCOPY2', 'MCOPY3') then 'MCOPY'
+            when Ref_code like '%GGLADBS%' or Ref_code like 'GGLADIS' or Ref_code like 'GGLADAD' or Ref_code like 'GGLADAS' or Ref_code = 'GGLAD' then 'GGLAD'
+            when Ref_code in ('OPIC', 'OPIC1', 'OPIC2', 'OPIC3', 'OPIC4') then 'OPIC' else Ref_code end as Referral,
+       d.spend,
+       count(distinct tl.id) as Logins,
+    --   d.spend / count(distinct tl.id) as CPL,
+       count(distinct (case when l.platform= '2' then l.license_code else null end )) as Licenses from `vp_temp_leads` tl
+left join `vp_licenses` l on l.user_id = tl.user_id
+left join `vp_ads_spend` d on date(tl.log_date) = date(d.spend_date) and 
+Ref_code = d.referrer_id
+where tl.Ref_code in (select distinct Desktop from vp_campaign_source
+where Desktop is not null ) and tl.platform = 2
+and (referrer_code is null or lower(referrer_code) = 'undefined')
+and date(log_date) >= date_sub(date(current_timestamp), Interval 60 day)
+group by tl.Ref_code, 1, 3
+order by tl.Ref_code,1) as a
+group by 1,2
+order by 2,1;
